@@ -3,11 +3,49 @@
 use strict;
 use warnings;
 
+use Getopt::Long;
+
 use lib '/home/cmb433/local_perl/';
 
 use Bio::Restriction::Analysis;
 use Bio::Restriction::EnzymeCollection;
 use Bio::SeqIO;
+
+# ----------------------------------------------------------------------------------------
+# --- Get user input
+# ----------------------------------------------------------------------------------------
+
+my $usage = "Usage: perl $0 --input_fasta input.fa [--min_length 100000]\n";
+
+my $input_fasta;
+my $min_length = 0;
+my $verbose;
+
+GetOptions ("input_fasta=s" => \$input_fasta,
+			"min_length:i"  => \$min_length,
+			"verbose"       => \$verbose)
+or die("ERROR: Problem with passed arguments.\n$usage\n");
+
+if (!$input_fasta) {
+	die "ERROR: Missing input FASTA file.\n$usage\n";
+}
+
+# Open and load DNA sequence in FASTA file
+chomp $input_fasta;
+my $seqIO_obj = Bio::SeqIO->new(-file => $input_fasta, -format => "fasta");
+
+# Abort if results folder already exists
+my $out_dir = $input_fasta . '_enzymes/';
+if (-d $out_dir) {
+	die "ERROR: Results directory [$out_dir] already exists. Aborting.\n";
+}
+
+# Create folder to hold results
+mkdir $out_dir;
+
+# ----------------------------------------------------------------------------------------
+# --- Load data on enzymes
+# ----------------------------------------------------------------------------------------
 
 # Create collection of just Type II enzymes
 my $complete_collection = Bio::Restriction::EnzymeCollection->new();
@@ -27,25 +65,32 @@ my @enzymes = $type_ii_collection->each_enzyme();
 
 my $num_enz = scalar @enzymes;
 
-print "Number of enzymes:\t$num_enz\n";
+# ----------------------------------------------------------------------------------------
+# --- Do digestion for each sequence
+# ----------------------------------------------------------------------------------------
 
-# Open and load DNA sequence in FASTA file
-my $input_fasta = shift;
-chomp $input_fasta;
-
-# Create folder to hold results
-mkdir $input_fasta . '_enzymes/';
-
-my $seqIO_obj = Bio::SeqIO->new(-file => $input_fasta, -format => "fasta");
+# Keep track of how much sequence is analyzed
+my $total_length_digested = 0;
 
 while (my $seq_obj = $seqIO_obj->next_seq) {
 
+	my $seq_string;
 	if ($seq_obj->desc() ne "") {
-		print STDERR "Processing " . $seq_obj->desc() . "\n";
+		$seq_string = $seq_obj->desc();
 	} else {
-		print STDERR "Processing " . $seq_obj->display_id() . "\n";
+		$seq_string = $seq_obj->display_id();
 	}
-
+	print STDERR "Processing $seq_string...\n";
+	
+	# Skip if sequence length is less than minimum length
+	my $seq_len = $seq_obj->length();
+	if ($seq_len < $min_length) {
+		print STDERR "\tSkipping sequence of length $seq_len.\n";
+		next;
+	}
+	
+	$total_length_digested += $seq_len;
+	
 	my $e_count = 1;
 
 	# Start restriction enzyme analysis using our subset of enzymes
@@ -95,10 +140,14 @@ while (my $seq_obj = $seqIO_obj->next_seq) {
 		}
 		
 		close (ENZ);
-		print "\tFinished enzyme $e_count of $num_enz.\n";
+		print "\tFinished enzyme $e_count of $num_enz.\n" if $verbose;
 		$e_count++;
 	}
 
 }
+
+print STDERR "Finished simulated digestion.\n";
+print STDERR "\tTotal sequence digested:\t$total_length_digested bp\n";
+print STDERR "\tTotal number of enzymes:\t$num_enz\n";
 
 exit(0);
